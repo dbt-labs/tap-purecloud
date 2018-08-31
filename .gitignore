@@ -2,3 +2,8 @@ config.json
 persist.json
 env
 __pycache__/
+catalog.json
+get_catalog.py
+out.json
+tap_purecloud.egg-info/
+state.json
