@@ -20,6 +20,8 @@ import tap_purecloud.schemas as schemas
 import tap_purecloud.websocket_helper
 import time
 
+from . import streams
+
 
 logger = singer.get_logger()
 
@@ -203,7 +205,7 @@ def sync_users(config):
     api_instance = PureCloudPlatformApiSdk.UsersApi()
     body = FakeBody()
     gen_users = fetch_all_records(api_instance.get_users, 'entities', body, {'expand': ['locations']})
-    stream_results(gen_users, handle_object, 'users', schemas.user, ['id'], True)
+    stream_results(gen_users, handle_object, 'users', schemas.users, ['id'], True)
 
 
 def sync_groups(config):
@@ -211,7 +213,7 @@ def sync_groups(config):
     api_instance = PureCloudPlatformApiSdk.GroupsApi()
     body = FakeBody()
     gen_groups = fetch_all_records(api_instance.get_groups, 'entities', body)
-    stream_results(gen_groups, handle_object, 'groups', schemas.group, ['id'], True)
+    stream_results(gen_groups, handle_object, 'groups', schemas.groups, ['id'], True)
 
 
 def sync_locations(config):
@@ -236,7 +238,7 @@ def sync_queues(config):
     body = FakeBody()
     gen_queues = fetch_all_records(api_instance.get_queues, 'entities', body)
 
-    queues = stream_results(gen_queues, handle_object, 'queues', schemas.queue, ['id'], True)
+    queues = stream_results(gen_queues, handle_object, 'queues', schemas.queues, ['id'], True)
 
     for i, queue in enumerate(queues):
         first_page = (i == 0)
@@ -248,7 +250,7 @@ def sync_queues(config):
 
         getter = lambda *args, **kwargs: api_instance.get_queues_queue_id_wrapupcodes(queue_id)
         gen_queue_wrapup_codes = fetch_all_records(getter, 'entities', FakeBody())
-        stream_results(gen_queue_wrapup_codes, handle_queue_wrapup_code(queue_id), 'queue_wrapup_code', schemas.queue_wrapup, ['id'], first_page)
+        stream_results(gen_queue_wrapup_codes, handle_queue_wrapup_code(queue_id), 'queue_wrapup_code', schemas.queue_wrapup_code, ['id'], first_page)
 
 
 
@@ -429,7 +431,7 @@ def sync_management_units(config):
         # don't allow args here
         getter = lambda *args, **kwargs: api_instance.get_managementunits_mu_id_activitycodes(unit_id)
         gen_activitycodes = fetch_all_records(getter, 'activity_codes', FakeBody(), max_pages=1)
-        stream_results(gen_activitycodes, handle_activity_codes(unit_id), 'activity_code', schemas.activity_code, ['id', 'management_unit_id'], first_page)
+        stream_results(gen_activitycodes, handle_activity_codes(unit_id), 'activity_code', schemas.activity_codes, ['id', 'management_unit_id'], first_page)
 
         # don't allow args here
         getter = lambda *args, **kwargs: api_instance.get_managementunits_mu_id_users(unit_id)
@@ -687,6 +689,10 @@ def do_sync(args):
     singer.write_state(new_state)
 
 
+def do_discover(args):
+    streams.discover({}).dump()
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -694,11 +700,20 @@ def main():
         '-c', '--config', help='Config file', required=True)
     parser.add_argument(
         '-s', '--state', help='State file')
+    parser.add_argument(
+        '-d', '--discover', action='store_true', help='Run in discovery mode')
+    parser.add_argument(
+        '-p', '--properties', help='unused')
+    parser.add_argument(
+        '--catalog', help='specify streams to sync')
 
     args = parser.parse_args()
 
     try:
-        do_sync(args)
+        if args.discover:
+            do_discover(args)
+        else:
+            do_sync(args)
     except RuntimeError:
         logger.fatal("Run failed.")
         exit(1)
