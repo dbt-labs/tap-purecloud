@@ -11,13 +11,14 @@ import time
 import singer
 logger = singer.get_logger()
 
-MAX_TRIES = 12
+MAX_TRIES = 5
 WEBHOOK_WAIT = 5
 ADHERENCE_CHANNEL = 'v2.users.{}.workforcemanagement.historicaladherencequery'
 
 async def get_websocket_msg(uri):
     async with websockets.connect(uri) as websocket:
         for i in range(MAX_TRIES):
+            logger.info("BLOCKED FOR RECV ON WEBSOCKET")
             resp = await websocket.recv()
             data = json.loads(resp)
             body = data.get('eventBody', {})
@@ -27,10 +28,12 @@ async def get_websocket_msg(uri):
 
             if body.get('id'):
                 return body
+            else:
+                logger.info("Non-result response: {}".format(resp))
 
         raise RuntimeError("Did not find expected message")
 
-def get_historical_adherence(config, result_reference):
+def get_historical_adherence(config, result_reference, unit_id):
     api = PureCloudPlatformApiSdk.NotificationsApi()
     api_response = api.post_channels()
 
