@@ -62,7 +62,7 @@ historical_adherence = {
     }
 }
 
-user = {
+users = {
     'type': 'object',
     'properties': {
         'email': {
@@ -84,7 +84,7 @@ user = {
     }
 }
 
-group = {
+groups = {
     'type': 'object',
     'properties': {
         'name': {
@@ -256,7 +256,7 @@ management_unit = {
     }
 }
 
-activity_code = {
+activity_codes = {
     'type': 'object',
     'properties': {
         'id': {
@@ -367,7 +367,7 @@ presence = {
     }
 }
 
-queue = {
+queues = {
     'type': 'object',
     'properties': {
         'id': {
@@ -413,7 +413,7 @@ queue_membership = {
     }
 }
 
-queue_wrapup = {
+queue_wrapup_code = {
     'type': 'object',
     'properties': {
         'id': {
