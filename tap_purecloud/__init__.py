@@ -350,13 +350,13 @@ def sync_user_schedules(config, unit_id, user_ids, first_page):
 def sync_wfm_historical_adherence(config, unit_id, users, body):
     # The ol' Python pass-by-reference
     result_reference = {}
-    wfm_notifcation_thread = tap_purecloud.websocket_helper.get_historical_adherence(config, result_reference)
+    wfm_notifcation_thread = tap_purecloud.websocket_helper.get_historical_adherence(config, result_reference, unit_id)
 
     # give the webhook a chance to get settled
     logger.info("Waiting for websocket to settle")
     time.sleep(3)
 
-    logger.info("POSTING adherence request")
+    logger.info("POSTING adherence request for unit={}, users=[{}]".format(unit_id, ",".join(users)))
     api_instance = PureCloudPlatformClientV2.WorkforceManagementApi()
     wfm_response = api_instance.post_workforcemanagement_managementunit_historicaladherencequery(
             unit_id, body=body)
@@ -364,10 +364,12 @@ def sync_wfm_historical_adherence(config, unit_id, users, body):
     logger.info("Waiting for notification")
     wfm_notifcation_thread.join()
 
-    url = result_reference['downloadUrl']
-    response = requests.get(url).json()
-    yield response['data']
-
+    if 'downloadUrl' in result_reference:
+        url = result_reference['downloadUrl']
+        response = requests.get(url).json()
+        yield response['data']
+    else:
+        yield None
 
 def handle_adherence(unit_id):
     def handle(record):
@@ -408,6 +410,7 @@ def sync_historical_adherence(config, unit_id, users, first_page):
         body.time_zone = "UTC"
 
         gen_adherence = sync_wfm_historical_adherence(config, unit_id, users, body)
+        gen_adherence = [i for i in gen_adherence if i is not None]
         stream_results(gen_adherence, handle_adherence(unit_id), 'historical_adherence', schemas.historical_adherence, ['userId', 'management_unit_id', 'startDate'], first_page)
 
         sync_date = next_date
