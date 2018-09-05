@@ -644,7 +644,7 @@ def load_state(filename):
 
 
 def parse_input_date(date_string):
-    return datetime.datetime.strptime(date_string, '%Y-%m-%d').date()
+    return singer.utils.strptime_with_tz(date_string).date()
 
 
 def do_sync(args):
