@@ -1,5 +1,6 @@
 
 from singer.catalog import Catalog, Schema, CatalogEntry
+from singer import metadata
 from . import schemas
 
 
@@ -12,11 +13,14 @@ def discover(ctx):
     catalog = Catalog([])
     for stream in all_streams:
         schema = Schema.from_dict(load_schema(ctx, stream.tap_stream_id), inclusion="automatic")
+        mdata = metadata.new()
+        mdata = metadata.write(mdata, (), 'selected-by-default', True)
         catalog.streams.append(CatalogEntry(
             stream=stream.tap_stream_id,
             tap_stream_id=stream.tap_stream_id,
             key_properties=stream.pk_fields,
             schema=schema,
+            metadata=metadata.to_list(mdata)
         ))
     return catalog
 
