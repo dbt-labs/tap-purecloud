@@ -7,3 +7,6 @@ get_catalog.py
 out.json
 tap_purecloud.egg-info/
 state.json
+logs/
+out.log
+run.sh

@@ -18,14 +18,12 @@ ADHERENCE_CHANNEL = 'v2.users.{}.workforcemanagement.historicaladherencequery'
 async def get_websocket_msg(uri):
     async with websockets.connect(uri) as websocket:
         for i in range(MAX_TRIES):
-            logger.info("BLOCKED FOR RECV ON WEBSOCKET")
+            logger.info("Blocking to receive data on websocket for {}".format(uri))
             resp = await websocket.recv()
             data = json.loads(resp)
             body = data.get('eventBody', {})
 
-            logger.info("GOT WEBSOCKET DATA")
-            logger.info(body)
-
+            logger.info("Received websocket data with keys: {}".format(body.keys()))
             if body.get('id'):
                 return body
             else:
@@ -35,7 +33,11 @@ async def get_websocket_msg(uri):
 
 def get_historical_adherence(config, result_reference, unit_id):
     api = PureCloudPlatformApiSdk.NotificationsApi()
-    api_response = api.post_channels()
+    try:
+        api_response = api.post_channels()
+    except PureCloudPlatformClientV2.rest.ApiException as e:
+        time.sleep(10)
+        api_response = api.post_channels()
 
     client_id = config.get('client_id')
     channel_id = ADHERENCE_CHANNEL.format(client_id)
@@ -43,7 +45,12 @@ def get_historical_adherence(config, result_reference, unit_id):
     topic = PureCloudPlatformApiSdk.ChannelTopic()
     topic.id = channel_id
 
-    notification_resp = api.post_channels_channel_id_subscriptions(api_response.id, [topic])
+    try:
+        notification_resp = api.post_channels_channel_id_subscriptions(api_response.id, [topic])
+    except PureCloudPlatformClientV2.rest.ApiException as e:
+        time.sleep(10)
+        notification_resp = api.post_channels_channel_id_subscriptions(api_response.id, [topic])
+
     logger.info("Listening on topic {}".format(channel_id))
 
     def loop_in_thread(loop, websocket_uri, res):
