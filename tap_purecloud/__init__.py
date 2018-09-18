@@ -21,6 +21,7 @@ import tap_purecloud.websocket_helper
 import time
 
 from . import streams
+from . import context
 
 
 logger = singer.get_logger()
@@ -175,7 +176,7 @@ def handle_object(obj):
     return parse_dates(obj.to_dict())
 
 
-def stream_results(generator, transform_record, record_name, schema, primary_key, write_schema):
+def stream_results(generator, transform_record, record_name, schema, primary_key, write_schema, ctx=None):
     all_records = []
     if write_schema:
         singer.write_schema(record_name, schema, primary_key)
@@ -186,6 +187,10 @@ def stream_results(generator, transform_record, record_name, schema, primary_key
             records = [transform_record(record) for record in page]
         valid_records = [r for r in records if r is not None]
         singer.write_records(record_name, valid_records)
+
+        if ctx:
+            ctx.write_state()
+
         all_records.extend(valid_records)
     return all_records
 
@@ -200,7 +205,7 @@ def stream_results_list(generator, transform_record, record_name, schema, primar
             singer.write_records(record_name, records)
 
 
-def sync_users(config):
+def sync_users(config, ctx):
     logger.info("Fetching users")
     api_instance = PureCloudPlatformApiSdk.UsersApi()
     body = FakeBody()
@@ -208,7 +213,7 @@ def sync_users(config):
     stream_results(gen_users, handle_object, 'users', schemas.users, ['id'], True)
 
 
-def sync_groups(config):
+def sync_groups(config, ctx):
     logger.info("Fetching groups")
     api_instance = PureCloudPlatformApiSdk.GroupsApi()
     body = FakeBody()
@@ -216,7 +221,7 @@ def sync_groups(config):
     stream_results(gen_groups, handle_object, 'groups', schemas.groups, ['id'], True)
 
 
-def sync_locations(config):
+def sync_locations(config, ctx):
     logger.info("Fetching locations")
     api_instance = PureCloudPlatformApiSdk.LocationsApi()
     body = PureCloudPlatformApiSdk.LocationSearchRequest()
@@ -224,7 +229,7 @@ def sync_locations(config):
     stream_results(gen_locations, handle_object, 'location', schemas.location, ['id'], True)
 
 
-def sync_presence_definitions(config):
+def sync_presence_definitions(config, ctx):
     logger.info("Fetching presence definitions")
     api_instance = PureCloudPlatformApiSdk.PresenceApi()
     body = FakeBody()
@@ -232,7 +237,7 @@ def sync_presence_definitions(config):
     stream_results(gen_presences, handle_object, 'presence', schemas.presence, ['id'], True)
 
 
-def sync_queues(config):
+def sync_queues(config, ctx):
     logger.info("Fetching queues")
     api_instance = PureCloudPlatformApiSdk.RoutingApi()
     body = FakeBody()
@@ -358,8 +363,13 @@ def sync_wfm_historical_adherence(config, unit_id, users, body):
 
     logger.info("POSTING adherence request for unit={}, users=[{}]".format(unit_id, ",".join(users)))
     api_instance = PureCloudPlatformClientV2.WorkforceManagementApi()
-    wfm_response = api_instance.post_workforcemanagement_managementunit_historicaladherencequery(
-            unit_id, body=body)
+    try:
+        wfm_response = api_instance.post_workforcemanagement_managementunit_historicaladherencequery(
+                unit_id, body=body)
+    except PureCloudPlatformClientV2.rest.ApiException as e:
+        time.sleep(10)
+        wfm_response = api_instance.post_workforcemanagement_managementunit_historicaladherencequery(
+                unit_id, body=body)
 
     logger.info("Waiting for notification")
     wfm_notifcation_thread.join()
@@ -386,9 +396,16 @@ def get_user_unit_mapping(users):
     return unit_users
 
 
-def sync_historical_adherence(config, unit_id, users, first_page):
+def sync_historical_adherence(config, unit_id, users, first_page, ctx):
 
-    sync_date = config['start_date']
+    # Use sync date from bookmark if present, otherwise default to
+    # overall tap start date
+
+    bookmarked_start = ctx.get_bookmark(['historical_adherence', unit_id])
+    if bookmarked_start:
+        sync_date = parse_input_date(bookmarked_start)
+    else:
+        sync_date = config['start_date']
 
     end_date = datetime.date.today()
     incr = datetime.timedelta(days=1)
@@ -411,12 +428,25 @@ def sync_historical_adherence(config, unit_id, users, first_page):
 
         gen_adherence = sync_wfm_historical_adherence(config, unit_id, users, body)
         gen_adherence = [i for i in gen_adherence if i is not None]
-        stream_results(gen_adherence, handle_adherence(unit_id), 'historical_adherence', schemas.historical_adherence, ['userId', 'management_unit_id', 'startDate'], first_page)
+
+        # This writes the state after every successful record
+        stream_results(gen_adherence,
+                       handle_adherence(unit_id),
+                       'historical_adherence',
+                       schemas.historical_adherence,
+                       ['userId', 'management_unit_id', 'startDate'],
+                       first_page,
+                       ctx=ctx)
+
+
+        ctx.set_bookmark(['historical_adherence', unit_id], sync_date.isoformat())
 
         sync_date = next_date
         first_page = False
 
-def sync_management_units(config):
+    ctx.set_bookmark(['historical_adherence', unit_id], sync_date.isoformat())
+
+def sync_management_units(config, ctx):
     logger.info("Fetching management units")
     api_instance = PureCloudPlatformApiSdk.WorkforceManagementApi()
     body = FakeBody()
@@ -445,7 +475,7 @@ def sync_management_units(config):
         sync_user_schedules(config, unit_id, user_ids, first_page)
 
         unit_users = get_user_unit_mapping(users)
-        sync_historical_adherence(config, unit_id, unit_users[unit_id], first_page)
+        sync_historical_adherence(config, unit_id, unit_users[unit_id], first_page, ctx)
 
 
 def handle_conversation(conversation_record):
@@ -470,7 +500,7 @@ def handle_conversation(conversation_record):
     return conversation
 
 
-def sync_conversations(config):
+def sync_conversations(config, ctx):
     logger.info("Fetching conversations")
     api_instance = PureCloudPlatformApiSdk.ConversationsApi()
 
@@ -559,7 +589,7 @@ def handle_user_details(user_details_record):
     return presences + statuses
 
 
-def sync_user_details(config):
+def sync_user_details(config, ctx):
     logger.info("Fetching user details")
     api_instance = PureCloudPlatformApiSdk.UsersApi()
 
@@ -653,6 +683,8 @@ def do_sync(args):
     config = load_config(args.config)
     state = load_state(args.state)
 
+    ctx = context.Context(state)
+
     # grab start date from state file. If not found
     # default to value in config file
 
@@ -675,21 +707,18 @@ def do_sync(args):
     PureCloudPlatformClientV2.configuration.host = api_host
     PureCloudPlatformClientV2.configuration.access_token = access_token
 
-    sync_users(config)
-    sync_groups(config)
-    sync_locations(config)
-    sync_presence_definitions(config)
-    sync_queues(config)
+    sync_users(config, ctx)
+    sync_groups(config, ctx)
+    sync_locations(config, ctx)
+    sync_presence_definitions(config, ctx)
+    sync_queues(config, ctx)
 
-    sync_management_units(config)
-    sync_conversations(config)
-    sync_user_details(config)
+    sync_management_units(config, ctx)
+    sync_conversations(config, ctx)
+    sync_user_details(config, ctx)
 
-    new_state = {
-        'start_date': datetime.date.today().strftime('%Y-%m-%d')
-    }
-
-    singer.write_state(new_state)
+    ctx.state['start_date'] = datetime.date.today().strftime('%Y-%m-%d')
+    ctx.write_state()
 
 
 def do_discover(args):
